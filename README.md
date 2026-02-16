@@ -28,7 +28,7 @@ Builds include:
 # 🚀 Install / Update
 
 ```bash
-curl -fLO https://raw.githubusercontent.com/YOUR_USERNAME/greetd-dms-greeter-git/main/update-greeterd
-chmod +x update-greeterd
-sudo mv update-greeterd /usr/local/bin/update-greeterd
-update-greeterd
+curl -fLO https://raw.githubusercontent.com/Ravi-Kishor/greetd-dms-greeter-git/main/update-greetd
+chmod +x update-greetd
+sudo mv update-greetd /usr/local/bin/update-greetd
+update-greetd
