@@ -16,6 +16,11 @@ require curl
 require jq
 require sudo
 require pacman
+require grep
+
+cpu_supports_v3() {
+  grep -qiE 'avx2' /proc/cpuinfo
+}
 
 get_installed_version() {
   pacman -Q "$PKG_NAME" 2>/dev/null | awk '{print $2}' || echo "Not Installed"
@@ -23,31 +28,38 @@ get_installed_version() {
 
 INSTALLED_VERSION=$(get_installed_version)
 
-echo "Installed package version: $INSTALLED_VERSION"
-echo "📡 Fetching latest release metadata…"
+echo "Installed version: $INSTALLED_VERSION"
+echo "📡 Fetching latest release metadata..."
 
 RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")
 
 TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+
+if [[ -z "$TAG_NAME" || "$TAG_NAME" == "null" ]]; then
+  echo "❌ Failed to fetch release information"
+  exit 1
+fi
+
 echo "Latest release tag: $TAG_NAME"
 
-# Prefer x86_64_v3, fallback to generic x86_64
-ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '
+# Determine which build to prefer
+if cpu_supports_v3; then
+  echo "🧠 AVX2 detected — preferring x86_64_v3 build"
+  ASSET_PATTERN="^greetd-dms-greeter-git-.*-x86_64_v3\.pkg\.tar\.zst$"
+else
+  echo "⚠️  AVX2 not detected — using generic x86_64 build"
+  ASSET_PATTERN="^greetd-dms-greeter-git-.*-x86_64\.pkg\.tar\.zst$"
+fi
+
+ASSET_URL=$(echo "$RELEASE_JSON" | jq -r \
+  --arg pattern "$ASSET_PATTERN" '
   .assets[]
-  | select(.name | test("^greetd-dms-greeter-git-.*-x86_64_v3\\.pkg\\.tar\\.zst$"))
+  | select(.name | test($pattern))
   | .browser_download_url
 ' | head -n1)
 
 if [[ -z "$ASSET_URL" || "$ASSET_URL" == "null" ]]; then
-  ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '
-    .assets[]
-    | select(.name | test("^greetd-dms-greeter-git-.*-x86_64\\.pkg\\.tar\\.zst$"))
-    | .browser_download_url
-  ' | head -n1)
-fi
-
-if [[ -z "$ASSET_URL" || "$ASSET_URL" == "null" ]]; then
-  echo "❌ Could not find greetd-dms-greeter-git package in release $TAG_NAME"
+  echo "❌ Could not find matching package in release $TAG_NAME"
   exit 1
 fi
 
@@ -66,12 +78,12 @@ read -rp "Enter choice (1/2): " CHOICE
 
 if [[ "$CHOICE" == "1" ]]; then
   if [[ "$INSTALLED_VERSION" == "$LATEST_VERSION" ]]; then
-    echo "✅ greetd-dms-greeter-git is already up to date"
+    echo "✅ Already up to date"
     exit 0
   fi
-  echo "⬆️ Updating greetd-dms-greeter-git $INSTALLED_VERSION → $LATEST_VERSION"
+  echo "⬆️ Updating $INSTALLED_VERSION → $LATEST_VERSION"
 elif [[ "$CHOICE" == "2" ]]; then
-  echo "🛠️ Force installing greetd-dms-greeter-git $LATEST_VERSION"
+  echo "🛠️ Force installing $LATEST_VERSION"
 else
   echo "❌ Invalid choice"
   exit 1
@@ -80,11 +92,13 @@ fi
 TMP_DIR=$(mktemp -d)
 cd "$TMP_DIR"
 
-echo "📥 Downloading (8 connections with aria2)..."
+echo
+echo "📥 Downloading package..."
 echo "   $PKG_FILE"
 
 aria2c -x 8 -s 8 -k 1M -o "$PKG_FILE" "$ASSET_URL"
 
+echo
 echo "📦 Installing package..."
 sudo pacman -U --noconfirm "$PKG_FILE"
 
