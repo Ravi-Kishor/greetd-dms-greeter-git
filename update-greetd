@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO="YOUR_USERNAME/greetd-dms-greeter-git"
+REPO="Ravi-Kishor/greetd-dms-greeter-git"
 PKG_NAME="greetd-dms-greeter-git"
 
 require() {
