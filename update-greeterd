@@ -1,0 +1,95 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO="YOUR_USERNAME/greetd-dms-greeter-git"
+PKG_NAME="greetd-dms-greeter-git"
+
+require() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "❌ Required command '$1' not found"
+    exit 1
+  }
+}
+
+require aria2c
+require curl
+require jq
+require sudo
+require pacman
+
+get_installed_version() {
+  pacman -Q "$PKG_NAME" 2>/dev/null | awk '{print $2}' || echo "Not Installed"
+}
+
+INSTALLED_VERSION=$(get_installed_version)
+
+echo "Installed package version: $INSTALLED_VERSION"
+echo "📡 Fetching latest release metadata…"
+
+RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")
+
+TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+echo "Latest release tag: $TAG_NAME"
+
+# Prefer x86_64_v3, fallback to generic x86_64
+ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '
+  .assets[]
+  | select(.name | test("^greetd-dms-greeter-git-.*-x86_64_v3\\.pkg\\.tar\\.zst$"))
+  | .browser_download_url
+' | head -n1)
+
+if [[ -z "$ASSET_URL" || "$ASSET_URL" == "null" ]]; then
+  ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '
+    .assets[]
+    | select(.name | test("^greetd-dms-greeter-git-.*-x86_64\\.pkg\\.tar\\.zst$"))
+    | .browser_download_url
+  ' | head -n1)
+fi
+
+if [[ -z "$ASSET_URL" || "$ASSET_URL" == "null" ]]; then
+  echo "❌ Could not find greetd-dms-greeter-git package in release $TAG_NAME"
+  exit 1
+fi
+
+PKG_FILE=$(basename "$ASSET_URL")
+
+LATEST_VERSION=$(echo "$PKG_FILE" | sed -E \
+  's/^greetd-dms-greeter-git-(.*)-x86_64(_v3)?\.pkg\.tar\.zst/\1/')
+
+echo "Latest package version: $LATEST_VERSION"
+echo
+
+echo "Choose an action:"
+echo "1) Update (skip if already latest)"
+echo "2) Force install"
+read -rp "Enter choice (1/2): " CHOICE
+
+if [[ "$CHOICE" == "1" ]]; then
+  if [[ "$INSTALLED_VERSION" == "$LATEST_VERSION" ]]; then
+    echo "✅ greetd-dms-greeter-git is already up to date"
+    exit 0
+  fi
+  echo "⬆️ Updating greetd-dms-greeter-git $INSTALLED_VERSION → $LATEST_VERSION"
+elif [[ "$CHOICE" == "2" ]]; then
+  echo "🛠️ Force installing greetd-dms-greeter-git $LATEST_VERSION"
+else
+  echo "❌ Invalid choice"
+  exit 1
+fi
+
+TMP_DIR=$(mktemp -d)
+cd "$TMP_DIR"
+
+echo "📥 Downloading (8 connections with aria2)..."
+echo "   $PKG_FILE"
+
+aria2c -x 8 -s 8 -k 1M -o "$PKG_FILE" "$ASSET_URL"
+
+echo "📦 Installing package..."
+sudo pacman -U --noconfirm "$PKG_FILE"
+
+cd /
+rm -rf "$TMP_DIR"
+
+echo
+echo "✅ greetd-dms-greeter-git $LATEST_VERSION installed successfully!"
