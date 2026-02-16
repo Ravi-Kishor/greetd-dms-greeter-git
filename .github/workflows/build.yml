@@ -1,59 +1,137 @@
 name: Build greetd-dms-greeter-git (x86-64-v3)
 
+permissions:
+  contents: write
+
 on:
-  push:
-    branches: [ main ]
-  pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "0 */2 * * *"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     container:
       image: archlinux:latest
 
     steps:
-      - name: Install base-devel and git
+      # -------------------------
+      # Update system
+      # -------------------------
+      - name: Update base system
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git sudo
+          pacman -S --noconfirm base-devel git sudo quickshell greetd
 
-      - name: Create build user
+      # -------------------------
+      # Create builder user
+      # -------------------------
+      - name: Create builder user
         run: |
-          useradd -m builduser
-          echo "builduser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Configure makepkg for x86-64-v3 + strip
+      # -------------------------
+      # Create optimized makepkg.conf
+      # -------------------------
+      - name: Enable x86-64-v3 + strip
         run: |
           cat >> /etc/makepkg.conf << "EOF"
 
-          CARCH="x86_64"
-          CHOST="x86_64-pc-linux-gnu"
-
           CFLAGS="-march=x86-64-v3 -O2 -pipe -fno-plt"
           CXXFLAGS="${CFLAGS}"
-          RUSTFLAGS="-C target-cpu=x86-64-v3"
           LDFLAGS="-Wl,-O1,--sort-common,--as-needed,-z,relro,-z,now"
-
           OPTIONS=(strip docs !libtool !staticlibs emptydirs zipman purge !debug lto)
+
           STRIP_BINARIES="--strip-all"
           STRIP_SHARED="--strip-unneeded"
           STRIP_STATIC="--strip-debug"
           EOF
 
-      - name: Fix permissions
-        run: chown -R builduser:builduser $GITHUB_WORKSPACE
+      # -------------------------
+      # Create PKGBUILD
+      # -------------------------
+      - name: Create PKGBUILD
+        run: |
+          cat > /home/builder/PKGBUILD << 'EOF'
+          pkgname=greetd-dms-greeter-git
+          pkgver=0.0.0
+          pkgrel=1
+          pkgdesc='DankMaterialShell greeter for greetd'
+          arch=('x86_64')
+          url='https://github.com/AvengeMedia/DankMaterialShell'
+          license=('GPL-3.0-only')
 
+          depends=('greetd' 'quickshell')
+          makedepends=('git')
+
+          provides=('greetd-dms-greeter')
+          conflicts=('greetd-dms-greeter' 'greetd-dms-greeter-bin')
+
+          source=("$pkgname::git+$url.git")
+          sha256sums=('SKIP')
+
+          pkgver() {
+            cd "$srcdir/$pkgname"
+            git describe --tags --long 2>/dev/null \
+              | sed 's/^v//;s/-/.r/;s/-/./' || \
+              printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+          }
+
+          package() {
+              cd "$srcdir/$pkgname"
+
+              install -dm755 "$pkgdir/usr/share/quickshell/dms-greeter"
+              cp -r ./quickshell/* "$pkgdir/usr/share/quickshell/dms-greeter/"
+
+              install -Dm755 \
+                "quickshell/Modules/Greetd/assets/dms-greeter" \
+                "$pkgdir/usr/bin/dms-greeter"
+
+              install -Dm644 \
+                "quickshell/Modules/Greetd/README.md" \
+                "$pkgdir/usr/share/doc/dms-greeter/README.md"
+
+              rm -rf "$pkgdir/usr/share/quickshell/dms-greeter/.git"*
+
+              install -dm750 "$pkgdir/var/cache/dms-greeter"
+          }
+          EOF
+
+          chown -R builder:builder /home/builder
+
+      # -------------------------
+      # Build package
+      # -------------------------
       - name: Build package
         run: |
-          su builduser -c "cd $GITHUB_WORKSPACE && makepkg -s --noconfirm"
+          su builder -c "cd ~ && makepkg -s --noconfirm"
 
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+      # -------------------------
+      # Prepare release
+      # -------------------------
+      - name: Prepare release
+        id: pkg
+        run: |
+          PKG_PATH=$(find /home/builder -maxdepth 1 -type f -name "greetd-dms-greeter-git-*-x86_64.pkg.tar.zst" ! -name "*debug*")
+          PKG_FILE=$(basename "$PKG_PATH")
+
+          VERSION=$(echo "$PKG_FILE" | sed -E 's/^greetd-dms-greeter-git-(.*)-x86_64\.pkg\.tar\.zst/\1/')
+          NEW_NAME="greetd-dms-greeter-git-${VERSION}-x86_64_v3.pkg.tar.zst"
+
+          mkdir release
+          cp "$PKG_PATH" "release/$NEW_NAME"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      # -------------------------
+      # Create GitHub Release
+      # -------------------------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: greetd-dms-greeter-git-x86-64-v3
-          path: "*.pkg.tar.zst"
+          tag_name: ${{ steps.pkg.outputs.version }}-v3
+          name: greetd-dms-greeter-git ${{ steps.pkg.outputs.version }} (x86-64-v3)
+          files: release/*.pkg.tar.zst
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
