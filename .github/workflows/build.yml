@@ -32,23 +32,6 @@ jobs:
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
       # -------------------------
-      # Create optimized makepkg.conf
-      # -------------------------
-      - name: Enable x86-64-v3 + strip
-        run: |
-          cat >> /etc/makepkg.conf << "EOF"
-
-          CFLAGS="-march=x86-64-v3 -O2 -pipe -fno-plt"
-          CXXFLAGS="${CFLAGS}"
-          LDFLAGS="-Wl,-O1,--sort-common,--as-needed,-z,relro,-z,now"
-          OPTIONS=(strip docs !libtool !staticlibs emptydirs zipman purge !debug lto)
-
-          STRIP_BINARIES="--strip-all"
-          STRIP_SHARED="--strip-unneeded"
-          STRIP_STATIC="--strip-debug"
-          EOF
-
-      # -------------------------
       # Create PKGBUILD
       # -------------------------
       - name: Create PKGBUILD
@@ -79,22 +62,27 @@ jobs:
           }
 
           package() {
-              cd "$srcdir/$pkgname"
+            cd "$srcdir/$pkgname"
 
-              install -dm755 "$pkgdir/usr/share/quickshell/dms-greeter"
-              cp -r ./quickshell/* "$pkgdir/usr/share/quickshell/dms-greeter/"
+            # Install shell assets
+            install -dm755 "$pkgdir/usr/share/quickshell/dms-greeter"
+            cp -r quickshell/* "$pkgdir/usr/share/quickshell/dms-greeter/"
 
-              install -Dm755 \
-                "quickshell/Modules/Greetd/assets/dms-greeter" \
-                "$pkgdir/usr/bin/dms-greeter"
+            # Install greeter binary/script
+            install -Dm755 \
+              quickshell/Modules/Greetd/assets/dms-greeter \
+              "$pkgdir/usr/bin/dms-greeter"
 
-              install -Dm644 \
-                "quickshell/Modules/Greetd/README.md" \
-                "$pkgdir/usr/share/doc/dms-greeter/README.md"
+            # Docs
+            install -Dm644 \
+              quickshell/Modules/Greetd/README.md \
+              "$pkgdir/usr/share/doc/dms-greeter/README.md"
 
-              rm -rf "$pkgdir/usr/share/quickshell/dms-greeter/.git"*
+            # Cleanup git junk if present
+            find "$pkgdir/usr/share/quickshell/dms-greeter" -name ".git*" -exec rm -rf {} +
 
-              install -dm750 "$pkgdir/var/cache/dms-greeter"
+            # Cache dir
+            install -dm750 "$pkgdir/var/cache/dms-greeter"
           }
           EOF
 
@@ -105,7 +93,10 @@ jobs:
       # -------------------------
       - name: Build package
         run: |
-          su builder -c "cd ~ && makepkg -s --noconfirm"
+          su builder -c '
+            export MAKEFLAGS="-j$(nproc)"
+            cd ~ && makepkg -s --noconfirm
+          '
 
       # -------------------------
       # Prepare release
@@ -119,7 +110,7 @@ jobs:
           VERSION=$(echo "$PKG_FILE" | sed -E 's/^greetd-dms-greeter-git-(.*)-x86_64\.pkg\.tar\.zst/\1/')
           NEW_NAME="greetd-dms-greeter-git-${VERSION}-x86_64_v3.pkg.tar.zst"
 
-          mkdir release
+          mkdir -p release
           cp "$PKG_PATH" "release/$NEW_NAME"
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
