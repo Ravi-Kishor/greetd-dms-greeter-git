@@ -9,7 +9,7 @@ No manual builds.
 
 ---
 
-## 📦 Package
+##  Package
 
 | Package | Description |
 |----------|------------|
@@ -25,7 +25,7 @@ Builds include:
 
 ---
 
-# 🚀 Install / Update
+#  Install / Update
 
 ```bash
 curl -fLO https://raw.githubusercontent.com/Ravi-Kishor/greetd-dms-greeter-git/main/update-greetd
