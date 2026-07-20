@@ -77,6 +77,30 @@ jobs:
               git -c protocol.file.allow=always submodule update
           }
 
+          build() {
+              cd "$srcdir/$pkgname"
+
+              echo "==========================="
+              echo "AFTER PREPARE / BEFORE PACKAGE"
+              echo "==========================="
+
+              find . -maxdepth 5 | sort
+
+              echo
+              echo "===== dms-greeter ====="
+              find . -name dms-greeter
+
+              echo
+              echo "===== shell.qml ====="
+              find . -name shell.qml
+
+              echo
+              echo "===== README.md ====="
+              find . -name README.md
+
+              exit 1
+          }
+
           pkgver() {
               cd "$srcdir/$pkgname"
 
