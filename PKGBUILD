@@ -24,7 +24,10 @@ optdepends=(
 )
 
 provides=('greetd-dms-greeter')
-conflicts=('greetd-dms-greeter' 'greetd-dms-greeter-bin')
+conflicts=(
+    'greetd-dms-greeter'
+    'greetd-dms-greeter-bin'
+)
 
 source=(
     "$pkgname::git+https://github.com/AvengeMedia/dank-greeter.git"
@@ -35,13 +38,11 @@ sha256sums=('SKIP')
 pkgver() {
     cd "$srcdir/$pkgname"
 
-    if git describe --tags --long >/dev/null 2>&1; then
-        git describe --tags --long | sed 's/^v//; s/-/./g'
-    else
+    git describe --long --tags 2>/dev/null |
+        sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' ||
         printf "r%s.%s" \
             "$(git rev-list --count HEAD)" \
             "$(git rev-parse --short HEAD)"
-    fi
 }
 
 prepare() {
@@ -52,6 +53,9 @@ prepare() {
 
 build() {
     cd "$srcdir/$pkgname"
+
+    export GOAMD64=v3
+    export GOFLAGS="${GOFLAGS} -trimpath"
 
     make build
 }
@@ -74,9 +78,9 @@ package() {
     # Documentation
     install -Dm644 \
         README.md \
-        "$pkgdir/usr/share/doc/dms-greeter/README.md"
+        "$pkgdir/usr/share/doc/$pkgname/README.md"
 
-    # Cache directory
+    # Runtime cache
     install -dm750 \
         "$pkgdir/var/cache/dms-greeter"
 }
