@@ -15,13 +15,17 @@ jobs:
       image: archlinux:latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out packaging repository
+        uses: actions/checkout@v4
 
-      - name: Update system
+      - name: Update system and install build tools
+        shell: bash
         run: |
+          set -euo pipefail
           pacman -Syu --noconfirm
           pacman -S --needed --noconfirm \
             base-devel \
+            binutils \
             git \
             go \
             make \
@@ -29,40 +33,99 @@ jobs:
             greetd \
             quickshell
 
-      - name: Create builder
+      - name: Verify Go toolchain and PKGBUILD
+        shell: bash
         run: |
-          useradd -m builder
-          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          set -euo pipefail
+          test -f PKGBUILD || {
+            echo "::error::PKGBUILD was not found in the checked-out packaging repository."
+            exit 1
+          }
+
+          go version
+          GO_VERSION="$(go env GOVERSION | sed 's/^go//')"
+          if [[ "$(printf '%s\n' 1.27 "$GO_VERSION" | sort -V | head -n1)" != "1.27" ]]; then
+            echo "::error::dux-greeter requires Go 1.27 or newer; found $GO_VERSION"
+            exit 1
+          fi
+
+      - name: Create unprivileged builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          useradd --create-home builder
+          printf 'builder ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
+          chmod 0440 /etc/sudoers.d/builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
-      - name: Build package
+      - name: Build x86-64-v3 package
+        shell: bash
         run: |
-          su builder -c "
-            cd '$GITHUB_WORKSPACE'
-            makepkg -s --cleanbuild --noconfirm
-          "
+          set -euo pipefail
+          su builder -s /bin/bash -c \
+            "cd '$GITHUB_WORKSPACE' && export GOAMD64=v3 && makepkg --syncdeps --cleanbuild --noconfirm"
 
-      - name: Prepare release
+      - name: Verify package and prepare release
         id: pkg
+        shell: bash
         run: |
-          mkdir release
+          set -euo pipefail
+          shopt -s nullglob
+          packages=( ./*.pkg.tar.zst )
+          filtered=()
+          for package in "${packages[@]}"; do
+            [[ "$package" == *debug* ]] || filtered+=( "$package" )
+          done
 
-          PKG=$(find . -maxdepth 1 -name "*.pkg.tar.zst" ! -name "*debug*" | head -n1)
+          if (( ${#filtered[@]} != 1 )); then
+            echo "::error::Expected exactly one non-debug package, found ${#filtered[@]}"
+            printf '%s\n' "${filtered[@]}"
+            exit 1
+          fi
 
-          VERSION=$(basename "$PKG" \
-            | sed -E 's/^greetd-dms-greeter-git-(.*)-x86_64\.pkg\.tar\.zst/\1/')
+          PKG="${filtered[0]}"
+          BASE="$(basename "$PKG")"
+          if [[ "$BASE" =~ ^greetd-dms-greeter-git-(.+)-x86_64\.pkg\.tar\.zst$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            echo "::error::Unexpected package filename: $BASE"
+            exit 1
+          fi
 
-          NEW="greetd-dms-greeter-git-${VERSION}-x86_64_v3.pkg.tar.zst"
+          mkdir -p release verify
+          cp "$PKG" "release/$BASE"
+          sha256sum "release/$BASE" > "release/$BASE.sha256"
 
-          cp "$PKG" "release/$NEW"
+          bsdtar -xOf "$PKG" usr/bin/dms-greeter > verify/dms-greeter
+          chmod +x verify/dms-greeter
+          go version -m verify/dms-greeter | tee verify/go-build-info.txt
+          grep -Eq 'GOAMD64=v3' verify/go-build-info.txt || {
+            echo "::error::Binary does not report GOAMD64=v3; check that PKGBUILD preserves the environment."
+            exit 1
+          }
+
+          readelf -h verify/dms-greeter | grep -E 'Type:.*DYN' >/dev/null || {
+            echo "::error::Expected a PIE executable (ELF Type DYN)."
+            exit 1
+          }
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.pkg.outputs.version }}-v3
+          tag_name: greetd-dms-greeter-${{ steps.pkg.outputs.version }}-v3-${{ steps.pkg.outputs.sha }}
           name: greetd-dms-greeter-git ${{ steps.pkg.outputs.version }} (x86-64-v3)
-          files: release/*.pkg.tar.zst
+          body: |
+            Automated x86-64-v3 build of `greetd-dms-greeter-git`.
+
+            - Upstream project: https://github.com/duxlabs-dev/dux-greeter
+            - Target: x86-64-v3 (Zen 3 and newer)
+            - Build verification: Go build metadata checked for `GOAMD64=v3`; PIE checked with `readelf`.
+            - Package checksum: included as a `.sha256` file.
+          files: |
+            release/*.pkg.tar.zst
+            release/*.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
