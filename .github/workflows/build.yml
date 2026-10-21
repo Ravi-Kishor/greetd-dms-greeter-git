@@ -104,8 +104,16 @@ jobs:
             exit 1
           }
 
-          readelf -h verify/dms-greeter | grep -E 'Type:.*DYN' >/dev/null || {
-            echo "::error::Expected a PIE executable (ELF Type DYN)."
+          # The current upstream build reports -buildmode=exe, so do not
+          # incorrectly require ELF Type DYN (PIE). Verify it is a valid
+          # x86-64 ELF executable and retain the GOAMD64=v3 check above.
+          readelf -h verify/dms-greeter | tee verify/elf-header.txt
+          grep -Eq 'Class:[[:space:]]+ELF64' verify/elf-header.txt || {
+            echo "::error::Expected an ELF64 binary."
+            exit 1
+          }
+          grep -Eq 'Machine:[[:space:]]+Advanced Micro Devices X86-64' verify/elf-header.txt || {
+            echo "::error::Expected an x86-64 executable."
             exit 1
           }
 
@@ -122,7 +130,8 @@ jobs:
 
             - Upstream project: https://github.com/duxlabs-dev/dux-greeter
             - Target: x86-64-v3 (Zen 3 and newer)
-            - Build verification: Go build metadata checked for `GOAMD64=v3`; PIE checked with `readelf`.
+            - Build verification: Go build metadata checked for `GOAMD64=v3`; ELF64 x86-64 format checked with `readelf`.
+            - Note: the current upstream build uses Go `-buildmode=exe`; this workflow does not claim PIE hardening.
             - Package checksum: included as a `.sha256` file.
           files: |
             release/*.pkg.tar.zst
