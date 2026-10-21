@@ -117,13 +117,40 @@ jobs:
             exit 1
           }
 
+          SHA="${GITHUB_SHA::12}"
+          test -n "$SHA" || {
+            echo "::error::GITHUB_SHA is empty; refusing to create a release with an invalid tag."
+            exit 1
+          }
+          TAG_VERSION="${VERSION//:/.}"
+          test -n "$TAG_VERSION" || {
+            echo "::error::Sanitized package version is empty."
+            exit 1
+          }
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "tag_version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release tag
+        shell: bash
+        env:
+          TAG_VERSION: ${{ steps.pkg.outputs.tag_version }}
+        run: |
+          set -euo pipefail
+          [[ -n "$TAG_VERSION" ]] || {
+            echo "::error::Release tag version is empty."
+            exit 1
+          }
+          [[ "$TAG_VERSION" =~ ^[A-Za-z0-9._-]+$ ]] || {
+            echo "::error::Release tag version contains invalid characters: $TAG_VERSION"
+            exit 1
+          }
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: greetd-dms-greeter-v3-${{ steps.pkg.outputs.sha }}
+          tag_name: greetd-dms-greeter-v3-${{ steps.pkg.outputs.tag_version }}
           name: greetd-dms-greeter-git ${{ steps.pkg.outputs.version }} (x86-64-v3)
           body: |
             Automated x86-64-v3 build of `greetd-dms-greeter-git`.
