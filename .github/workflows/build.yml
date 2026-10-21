@@ -92,9 +92,14 @@ jobs:
             exit 1
           fi
 
+          # The package is compiled for x86-64-v3 (GOAMD64=v3).
+          # Give the downloadable release asset an explicit _v3 suffix so
+          # installers can distinguish it from a generic x86_64 build.
+          RELEASE_ASSET="greetd-dms-greeter-git-${VERSION}-x86_64_v3.pkg.tar.zst"
+
           mkdir -p release verify
-          cp "$PKG" "release/$BASE"
-          sha256sum "release/$BASE" > "release/$BASE.sha256"
+          cp "$PKG" "release/$RELEASE_ASSET"
+          sha256sum "release/$RELEASE_ASSET" > "release/$RELEASE_ASSET.sha256"
 
           bsdtar -xOf "$PKG" usr/bin/dms-greeter > verify/dms-greeter
           chmod +x verify/dms-greeter
@@ -156,7 +161,7 @@ jobs:
             Automated x86-64-v3 build of `greetd-dms-greeter-git`.
 
             - Upstream project: https://github.com/duxlabs-dev/dux-greeter
-            - Target: x86-64-v3 (Zen 3 and newer)
+            - Target: x86-64-v3 (Zen 3 and newer); release asset is suffixed `_x86_64_v3`.
             - Build verification: Go build metadata checked for `GOAMD64=v3`; ELF64 x86-64 format checked with `readelf`.
             - Note: the current upstream build uses Go `-buildmode=exe`; this workflow does not claim PIE hardening.
             - Package checksum: included as a `.sha256` file.
