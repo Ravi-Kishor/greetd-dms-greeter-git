@@ -24,14 +24,10 @@ jobs:
           set -euo pipefail
           pacman -Syu --noconfirm
           pacman -S --needed --noconfirm \
-            base-devel \
-            binutils \
-            git \
-            go \
-            make \
-            sudo \
-            greetd \
-            quickshell
+            base-devel git go make tar gzip coreutils findutils \
+            cmake ninja pkgconf qt6-base qt6-declarative \
+            qt6-shadertools vulkan-headers cli11 wayland-protocols \
+            pipewire polkit
 
       - name: Verify Go toolchain and PKGBUILD
         shell: bash
