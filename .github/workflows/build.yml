@@ -63,7 +63,8 @@ jobs:
         run: |
           set -euo pipefail
           su builder -s /bin/bash -c \
-            "cd '$GITHUB_WORKSPACE' && export GOAMD64=v3 && makepkg --syncdeps --cleanbuild --noconfirm"
+            "cd '$GITHUB_WORKSPACE' && export GOAMD64=v3 QTBASE=1 && makepkg --syncdeps --cleanbuild --noconfirm"
+            #"cd '$GITHUB_WORKSPACE' && export GOAMD64=v3 && makepkg --syncdeps --cleanbuild --noconfirm"
 
       - name: Verify package and prepare release
         id: pkg
